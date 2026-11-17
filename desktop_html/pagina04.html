@@ -1,10 +1,11 @@
+<!-- ALERTAS CRÍTICOS -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lumos — Alertas Críticos</title>
-  <link rel="stylesheet" href="pagina04.css">
+  <link rel="stylesheet" href="../css/pagina04.css">
 </head>
 <body>
 
@@ -14,7 +15,7 @@
     <!-- SIDEBAR -->
     <aside class="sidebar">
       <div class="sidebar-logo">
-        <img src="img/slogan.png" alt="Logo" class="logo">
+        <img src="../img/slogan.png" alt="Logo" class="logo">
         <div class="sidebar-text">
           <h2 class="nome-empresa">LUMOS</h2>
           <p class="sublogo">REDE E INTEGRIDADE</p>
@@ -24,20 +25,20 @@
       <nav class="sidebar-menu">
         <p class="painel">PAINÉIS</p>
         <a href="pagina01.html" class="menu-item">
-          <img src="img/maps.png" alt="Mapa de Ocorrências" class="menu-icon">
+          <img src="../img/maps.png" alt="Mapa de Ocorrências" class="menu-icon">
           <span>Mapa de Ocorrências</span>
           <span class="badge">2</span>
         </a>
         <a href="pagina02.html" class="menu-item">
-          <img src="img/indicadores.png" alt="Indicadores ENEL" class="menu-icon">
+          <img src="../img/indicadores.png" alt="Indicadores ENEL" class="menu-icon">
           <span class="menu-text">Indicadores ENEL</span>
         </a>
         <a href="pagina03.html" class="menu-item">
-          <img src="img/status.png" alt="Status da Rede" class="menu-icon">
+          <img src="../img/status.png" alt="Status da Rede" class="menu-icon">
           <span>Status da Rede</span>
         </a>
         <a href="pagina04.html" class="menu-item active">
-          <img src="img/alertas-select.png" alt="Alertas Críticos" class="menu-icon">
+          <img src="../img/alertas_select.png" alt="Alertas Críticos" class="menu-icon">
           <span>Alertas Críticos</span>
           <span class="badge">1</span>
         </a>
@@ -71,21 +72,25 @@
         <!-- LISTA DE ALERTAS -->
         <div class="alertas-lista">
           
-          <!-- CARD 1: CRÍTICO (FURTO) -->
+          <!-- CARD 1: CRÍTICO (FALTA DE ENERGIA) -->
           <div class="card-alerta border-critico">
             <div class="alerta-header">
               <div class="alerta-titulo-group">
-                <img src="img/alerta01.png" alt="Alerta Crítico" class="alerta-icone-img">
-                <h2>Possíveis furtos de cabo detectado</h2>
+                <img src="../img/alerta01.png" alt="Alerta Crítico" class="alerta-icone-img">
+                <h2>Possível Queda de Energia</h2>
                 <span class="alerta-hora">14:12:52</span>
               </div>
               <span class="badge-alerta critico">crítico</span>
             </div>
-            <p class="alerta-descricao">Interrupção súbita de corrente + vibração anormal no trecho monitorado.</p>
-            <p class="alerta-localizacao">Juazeiro do Norte, CE · -4.1794, -38.1289 · Poste PST - 0442</p>
+            <p class="alerta-descricao">Interrupção súbita de tensão e corrente elétrica no trecho monitorado.</p>
+            <p class="alerta-localizacao">Juazeiro do Norte, CE · -7.227694, -39.312074 · Poste PST - 0442</p>
             <div class="alerta-acoes">
-              <button type="button" class="btn-acionar"><a href="pagina06.html"class="botao-vermelho">Acionar equipe de campo</a></button>
-              <button type="button" class="btn-historico"><a href="pagina05.html" class="botao-branco">Ver histórico do sensor</a></button>
+              <a href="pagina06.html">
+              <button type="button" class="btn-acionar">Acionar equipe de campo</button>
+              </a>
+              <a href="pagina05.html">
+              <button type="button" class="btn-historico">Ver histórico do sensor</button>
+              </a>
             </div>
           </div>
 
@@ -93,17 +98,21 @@
           <div class="card-alerta border-critico">
             <div class="alerta-header">
               <div class="alerta-titulo-group">
-                <img src="img/alerta01.png" alt="Alerta Crítico" class="alerta-icone-img">
-                <h2>Manipulação de cabo identificada</h2>
+                <img src="../img/alerta01.png" alt="Alerta Crítico" class="alerta-icone-img">
+                <h2>Queda de tensão identificada</h2>
                 <span class="alerta-hora">13:35:14</span>
               </div>
               <span class="badge-alerta critico">crítico</span>
             </div>
-            <p class="alerta-descricao">Sensor de vibração acima do normal por mais de 90 segundos.</p>
+            <p class="alerta-descricao">Sensor registrou nível de tensão abaixo do limite operacional por mais de 90 segundos.</p>
             <p class="alerta-localizacao">Barbalha, CE · -4.7500, -37.1289 · Poste PST - 0432</p>
             <div class="alerta-acoes">
-              <button type="button" class="btn-acionar"><a href="pagina06.html"class="botao-vermelho">Acionar equipe de campo</a></button>
-              <button type="button" class="btn-historico"><a href="pagina05.html" class="botao-branco">Ver histórico do sensor</a></button>
+              <a href="pagina06.html">
+              <button type="button" class="btn-acionar">Acionar equipe de campo</button>
+              </a>
+              <a href="pagina05.html">
+              <button type="button" class="btn-historico">Ver histórico do sensor</button>
+              </a>
             </div>
           </div>
 
@@ -111,7 +120,7 @@
           <div class="card-alerta border-atendimento">
             <div class="alerta-header">
               <div class="alerta-titulo-group">
-                <img src="img/relogio_atendimento.png" alt="Em atendimento" class="alerta-icone-img">
+                <img src="../img/relogio_atendimento.png" alt="Em atendimento" class="alerta-icone-img">
                 <h2>Equipe a caminho do local</h2>
                 <span class="alerta-hora">13:35:14</span>
               </div>
@@ -125,7 +134,7 @@
           <div class="card-alerta border-resolvido">
             <div class="alerta-header">
               <div class="alerta-titulo-group">
-                <img src="img/concluido.png" alt="Resolvido" class="alerta-icone-img">
+                <img src="../img/concluido.png" alt="Resolvido" class="alerta-icone-img">
                 <h2>Ocorrência resolvida — cabo substituído</h2>
                 <span class="alerta-hora">08:50:45</span>
               </div>

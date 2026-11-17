@@ -1,9 +1,12 @@
+ <!-- Acionar equipe de campo -->
 <!DOCTYPE html>
 <html lang="PT-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/pagina06.css"> 
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <title>Lumos - Acionar Equipe de Campo</title>
 </head>
 <body>
@@ -82,8 +85,8 @@
           </svg>
         </div>
         <div class="alert-details">
-          <h2>POSSÍVEL FURTO DE CABO — PRIORIDADE CRÍTICA</h2>
-          <p>Interrupção súbita de corrente + vibração anômala no trecho monitorado</p>
+          <h2>FALTA DE ENERGIA DETECTADA — PRIORIDADE CRÍTICA</h2>
+          <p>Interrupção súbita de tensão e corrente elétrica no trecho monitorado</p>
         </div>
       </div>
 
@@ -165,8 +168,8 @@
 
               <div class="notif-item">
                 <div class="notif-info">
-                  <h3>Autoridades policiais</h3>
-                  <p>Comunicação à delegacia da região</p>
+                  <h3>Subestação regional</h3>
+                  <p>Alerta de isolamento e manobra de carga</p>
                 </div>
                 <label class="switch">
                   <input type="checkbox" checked>
@@ -212,14 +215,13 @@
 
             <div class="map-container">
               <div class="map-overlay">
-                <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d7916.464460772386!2d-39.312920200000015!3d-7.214328849999993!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x7a178a5b1a5143d%3A0xc52737ed005d38ae!2sFranciscanos%2C%20Juazeiro%20do%20Norte%20-%20CE!5e0!3m2!1spt-BR!2sbr!4v1792959757548!5m2!1spt-BR!2sbr" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+                <div id="map-equipes" style="width: 100%; height: 220px; border-radius: 10px; z-index: 1;"></div>
               </div>
             </div>
-
             <div class="location-details">
               <div class="detail-row">
                 <span class="detail-label">Endereço</span>
-                <span class="detail-value">Av. Aílton Gomes</span>
+                <span class="detail-value">Av. Aílton Gomes (-7.227694, -39.312074)</span>
               </div>
               <div class="detail-row">
                 <span class="detail-label">Trecho afetado</span>
@@ -245,9 +247,9 @@
 
             <span class="section-title margin-top">INSTRUÇÕES PARA A EQUIPE</span>
             
-            <textarea class="instructions-textarea" rows="4">Proceder à verificação da integridade do trecho compreendido entre PST-0441 e PST-0442.
-Efetuar o registo fotográfico previamente a qualquer intervenção.
-É imperativo aguardar por apoio policial antes de aceder à área.</textarea>
+            <textarea class="instructions-textarea" rows="4">Proceder à inspeção da rede e chaves fusíveis no trecho compreendido entre PST-0441 e PST-0442.
+Realizar testes de tensão e continuidade antes de reenergizar o ramal.
+Confirmar o restabelecimento junto ao Centro de Operação.</textarea>
 
             <div class="action-buttons">
               <button class="btn-cancel">Cancelar</button>
@@ -309,7 +311,7 @@ Efetuar o registo fotográfico previamente a qualquer intervenção.
 
       <div class="modal-tags">
         <span class="tag-check">✓ central de operação enel ceará</span>
-        <span class="tag-check">✓ autoridades policiais</span>
+        <span class="tag-check">✓ subestação regional</span>
         <span class="tag-check">✓ app do agente técnico</span>
       </div>
 
