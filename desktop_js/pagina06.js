@@ -1,10 +1,117 @@
+const API_URL = "http://127.0.0.1:8000/api";
+let mapaEquipes;
+let camadaEquipes;
+
 document.addEventListener("DOMContentLoaded", () => {
+  inicializarMapaEquipes();
+  carregarDadosNoMapaEquipes();
   iniciarRelogioSincronizacao();
   configurarSelecaoEquipa();
   configurarSelecaoPrioridade();
   configurarBotoesAcao();
 });
 
+// 1. INICIALIZA O MAPA CLARO ESRI (Sem API Key)
+function inicializarMapaEquipes() {
+  const mapEl = document.getElementById("map-equipes");
+  if (!mapEl) return;
+
+  mapaEquipes = L.map("map-equipes").setView([-7.2143, -39.3129], 14);
+
+  // Mapa claro oficial Esri (World Street Map - detalhado e sem API Key)
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 18
+  }).addTo(mapaEquipes);
+
+  camadaEquipes = L.layerGroup().addTo(mapaEquipes);
+}
+
+// 2. CARREGA POSTES CRÍTICOS E EQUIPES DE CAMPO DA API
+async function carregarDadosNoMapaEquipes() {
+  if (!mapaEquipes) return;
+  camadaEquipes.clearLayers();
+
+  try {
+    const [resPostes, resEquipes] = await Promise.all([
+      fetch(`${API_URL}/postes`),
+      fetch(`${API_URL}/equipes`)
+    ]);
+
+    const postes = await resPostes.json();
+    const equipes = await resEquipes.json();
+
+    // A) Desenha apenas os postes SEM ENERGIA (vermelhos)
+    postes.forEach(poste => {
+      if (!poste.latitude || !poste.longitude || poste.status_energia !== "SEM_ENERGIA") return;
+
+      const iconePoste = L.divIcon({
+        className: "custom-div-icon",
+        html: `<div style="width: 18px; height: 18px; border-radius: 50%; background: #EF4444; border: 3px solid #fff; box-shadow: 0 0 12px #EF4444;"></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9]
+      });
+
+      L.marker([poste.latitude, poste.longitude], { icon: iconePoste })
+        .bindPopup(`
+          <div style="font-family: sans-serif;">
+            <strong style="color: #EF4444;">⚠️ ${poste.codigo} (Sem Energia)</strong><br>
+            <span style="font-size: 12px; color: #334155;">${poste.endereco} - ${poste.bairro}</span><br>
+            <span style="font-size: 11px; color: #64748B;">Clientes afetados: <strong>${poste.clientes_afetados || 0}</strong></span>
+          </div>
+        `)
+        .addTo(camadaEquipes);
+    });
+
+    // B) Desenha as EQUIPES DE CAMPO (Verde = Disponível | Amarelo = Ocupada)
+    equipes.forEach(equipe => {
+      if (!equipe.latitude || !equipe.longitude) return;
+
+      const disponivel = equipe.status === "Disponível";
+      const corEquipe = disponivel ? "#10B981" : "#F59E0B";
+
+      const iconeEquipe = L.divIcon({
+        className: "custom-div-icon",
+        html: `<div style="width: 22px; height: 22px; border-radius: 6px; background: ${corEquipe}; border: 2px solid #fff; box-shadow: 0 0 12px ${corEquipe}; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px;">E</div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+
+      L.marker([equipe.latitude, equipe.longitude], { icon: iconeEquipe })
+        .bindPopup(`
+          <div style="font-family: sans-serif; min-width: 170px;">
+            <strong style="color: #0F172A;">🚐 ${equipe.nome}</strong><br>
+            <span style="font-size: 12px; font-weight: bold; color: ${corEquipe};">Status: ${equipe.status}</span><br>
+            <span style="font-size: 11px; color: #475569;">${equipe.especialidade || "Manutenção de Rede"}</span>
+          </div>
+        `)
+        .addTo(camadaEquipes);
+    });
+ } catch (erro) {
+    console.warn("Usando coordenada de exemplo (MySQL offline):", erro);
+
+    // Pino do Poste PST-0442 na coordenada exata
+    const iconePoste = L.divIcon({
+      className: "custom-div-icon",
+      html: `<div style="width: 18px; height: 18px; border-radius: 50%; background: #EF4444; border: 3px solid #fff; box-shadow: 0 0 12px #EF4444;"></div>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 9]
+    });
+
+    L.marker([-7.227694, -39.312074], { icon: iconePoste })
+      .bindPopup(`
+        <div style="font-family: sans-serif;">
+          <strong style="color: #EF4444;">⚠️ PST-0442 (Sem Energia)</strong><br>
+          <span style="font-size: 12px; color: #334155;">Av. Aílton Gomes</span><br>
+          <span style="font-size: 11px; color: #64748B;">Clientes afetados: <strong>1.436</strong></span>
+        </div>
+      `)
+      .addTo(camadaEquipes)
+      .openPopup();
+  }
+}
+
+// 3. RELÓGIO DE SINCRONIZAÇÃO NO TOPO
 function iniciarRelogioSincronizacao() {
   const syncTimeElement = document.querySelector(".sync-time");
 
@@ -23,6 +130,7 @@ function iniciarRelogioSincronizacao() {
   setInterval(atualizarHorario, 1000);
 }
 
+// 4. SELEÇÃO DE EQUIPE E PRIORIDADE
 function configurarSelecaoEquipa() {
   const opcoesEquipa = document.querySelectorAll(".team-option");
 
@@ -58,6 +166,7 @@ function configurarSelecaoPrioridade() {
   });
 }
 
+// 5. BOTÕES DE CONFIRMAR ACIONAMENTO E CANCELAR
 function configurarBotoesAcao() {
   const btnConfirmar = document.querySelector(".btn-confirm");
   const btnCancelar = document.querySelector(".btn-cancel");
@@ -73,9 +182,8 @@ function configurarBotoesAcao() {
         const distTime = equipaAtiva.querySelector(".dist-time");
 
         const nomeEquipa = tituloElemento ? tituloElemento.textContent.trim() : "Equipe selecionada";
-        
         let composicao = descricaoElemento ? descricaoElemento.textContent.trim() : "";
-        composicao = composicao.replace("• Disponível", "").trim();
+        composicao = composicao.replace(/Disponível/g, "").replace(/•\s*$/, "").trim();
 
         const distTexto = distVal ? distVal.textContent.trim() : "";
         const tempoTexto = distTime ? distTime.textContent.trim() : "";
@@ -126,4 +234,18 @@ function fecharModal() {
 
 function irParaAlertas() {
   window.location.href = "pagina04.html";
+}
+// 1. Centraliza o mapa exatamente na coordenada do poste
+function inicializarMapaEquipes() {
+  const mapEl = document.getElementById("map-equipes");
+  if (!mapEl) return;
+
+  mapaEquipes = L.map("map-equipes").setView([-7.227694, -39.312074], 16);
+
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 18
+  }).addTo(mapaEquipes);
+
+  camadaEquipes = L.layerGroup().addTo(mapaEquipes);
 }
