@@ -67,14 +67,14 @@
                   fill="none" stroke="#2EB4AF" stroke-width="2.5" stroke-linejoin="round"/>
           </svg>
 
-          <div class="system-badge">
+          <div class="system-badge" id="mqtt-system-badge">
             <span class="dot-online"></span>
-            <span>SISTEMA ONLINE</span>
+            <span id="mqtt-system-text">AGUARDANDO MQTT</span>
           </div>
 
           <div class="sync-info">
             <span class="sync-label">Última sincronização</span>
-            <span class="sync-time">14:12:52</span>
+            <span class="sync-time">--:--:--</span>
           </div>
         </div>
       </header>
@@ -89,36 +89,36 @@
           <div class="chart-container">
             <div class="donut-chart">
               <div class="chart-center">
-                <span class="number">312</span>
+                <span class="number">0</span>
                 <span class="label">de 360 km cobertos</span>
               </div>
             </div>
           </div>
 
-          <p class="chart-footer">86% da rede prioritária com sensoriamento ativo</p>
+          <p class="chart-footer">Aguardando dados dos protótipos conectados</p>
         </div>
 
         <!-- Card 2: Status Geral -->
         <div class="status-card">
           <h2 class="card-title">Status geral</h2>
           
-          <div class="alert-pill">
+         <!-- <div class="alert-pill" id="status-geral-pill">
             <span class="orange-dot"></span>
-            <span>Alerta de interrupção</span>
-          </div>
+            <span id="status-geral-texto">Sem telemetria ativa</span>
+          </div> -->
 
           <ul class="data-list">
             <li class="list-item">
               <span class="item-label">Setores normais</span>
-              <span class="item-value text-success">41</span>
+              <span class="item-value text-success">0</span>
             </li>
             <li class="list-item">
               <span class="item-label">Setores em alerta</span>
-              <span class="item-value text-warning">5</span>
+              <span class="item-value text-warning">0</span>
             </li>
             <li class="list-item">
               <span class="item-label">Setores críticos</span>
-              <span class="item-value text-danger">2</span>
+              <span class="item-value text-danger">0</span>
             </li>
           </ul>
         </div>
@@ -130,17 +130,16 @@
           <ul class="data-list spacing-top">
             <li class="list-item">
               <span class="item-label">Corrente elétrica</span>
-              <span class="item-value">184 <small>ativos</small></span>
+              <span class="item-value">0 <small>ativos</small></span>
             </li>
             <li class="list-item">
               <span class="item-label">Vibração</span>
-              <span class="item-value">176 <small>ativos</small></span>
+              <span class="item-value">0 <small>ativos</small></span>
             </li>
             <li class="list-item">
               <span class="item-label">Offline &gt; 24h</span>
-              <span class="item-value text-danger">7 <small>unidades</small></span>
+              <span class="item-value text-danger">0 <small>unidades</small></span>
             </li>
-           
           </ul>
         </div>
 
@@ -160,7 +159,9 @@
     </main>
 
   </div>
-<!-- SCRIPTS NO FINAL DO BODY -->
+
+  <!-- SCRIPTS NO FINAL DO BODY -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="../js/pagina03.js"></script>
 </body>
 </html>
