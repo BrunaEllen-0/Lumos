@@ -45,20 +45,25 @@ class AcionamentoRequest(BaseModel):
 # ==========================================
 MQTT_BROKER = "broker.emqx.io"
 MQTT_PORT = 1883
-MQTT_TOPIC = "lumos/telemetria/postes"  # <-- Confirme o tópico exato com a Victoria
+MQTT_TOPIC = "pi_iot_juazeiro_2026/#"
 
 def processar_pacote_hardware(payload_json: dict):
-    """Salva a leitura em dados_processados e abre alerta_ocorrencia se faltar energia."""
+    """Salva a leitura do ESP32 em dados_processados e abre alerta_ocorrencia se faltar energia."""
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
 
     try:
         codigo_poste = payload_json.get("codigo_poste")
-        tensao = payload_json.get("tensao_volts", payload_json.get("tensao", 0.0))
-        corrente = payload_json.get("corrente_amp", payload_json.get("corrente", 0.0))
+        
+        # Lê do objeto 'leituras' enviado pelo firmware da Victoria (com fallback para raiz)
+        leituras = payload_json.get("leituras", {})
+        tensao = leituras.get("tensao_adc", payload_json.get("tensao_volts", payload_json.get("tensao", 0.0)))
+        corrente = leituras.get("corrente_adc", payload_json.get("corrente_amp", payload_json.get("corrente", 0.0)))
+        
         continuidade = payload_json.get("continuidade", 1)
         vibracao = payload_json.get("vibracao", 0.0)
         status_energia = payload_json.get("status_energia", "normal")
+        status_online = bool(payload_json.get("status_online", 1))
 
         # 1. Busca o id_dispositivo do poste na tabela poste_dispositivo
         cursor.execute(
@@ -85,17 +90,17 @@ def processar_pacote_hardware(payload_json: dict):
         id_da_leitura = cursor.lastrowid
 
         # 3. Atualiza o status atual do poste em poste_dispositivo
-        estado_poste = "sem_energia" if (status_energia in [False, "sem_energia", 0] or tensao == 0) else "normal"
+        estado_poste = "sem_energia" if status_energia in [False, "sem_energia", 0] else "normal"
         cursor.execute(
             """
             UPDATE poste_dispositivo 
-            SET status_energia = %s, status_online = TRUE 
+            SET status_energia = %s, status_online = %s 
             WHERE id_dispositivo = %s
             """,
-            (estado_poste, id_dispositivo)
+            (estado_poste, status_online, id_dispositivo)
         )
 
-        # 4. Se caiu a energia, abre alerta automático em alerta_ocorrencia
+        # 4. Se caiu a energia (CORTE_PERMANENTE / sem_energia), abre alerta automático
         if estado_poste == "sem_energia":
             cursor.execute(
                 """
@@ -113,10 +118,11 @@ def processar_pacote_hardware(payload_json: dict):
                         (id_dispositivo, id_da_leitura, tipo_evento, nivel_severidade, descricao, status_alerta)
                     VALUES (%s, %s, 'queda_energia', 'critica', %s, 'aberto')
                     """,
-                    (id_dispositivo, id_da_leitura, f"Queda de tensão detectada no poste {codigo_poste} (Tensão: {tensao}V)")
+                    (id_dispositivo, id_da_leitura, f"Corte permanente detectado no poste {codigo_poste} (Tensão ADC: {tensao})")
                 )
 
         conn.commit()
+        print(f"[MQTT -> DB] {codigo_poste} atualizado | Status: {estado_poste} | Tensão: {tensao} | Corrente: {corrente}")
     except Exception as e:
         conn.rollback()
         print(f"[Erro Banco MQTT]: {e}")
@@ -127,12 +133,12 @@ def processar_pacote_hardware(payload_json: dict):
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("Conectado ao EMQX com sucesso!")
+        print(f"[MQTT] Conectado ao EMQX ({MQTT_BROKER}) no tópico {MQTT_TOPIC}!")
         client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
     try:
-        dados = json.loads(msg.payload.decode())
+        dados = json.loads(msg.payload.decode("utf-8"))
         processar_pacote_hardware(dados)
     except Exception as e:
         print(f"[Erro JSON MQTT]: {e}")
