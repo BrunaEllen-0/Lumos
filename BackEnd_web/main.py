@@ -1,14 +1,13 @@
 import json
 import threading
-import mysql.connector
 import paho.mqtt.client as mqtt
+import mysql.connector
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 app = FastAPI(title="API Lumos - Monitoramento IoT")
 
-# Libera o acesso para o teu Frontend (HTML/JS) consumir a API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,83 +16,126 @@ app.add_middleware(
 )
 
 # ==========================================
-# 1. CONFIGURAÇÃO DO BANCO DE DADOS (MYSQL)
+# CONFIGURAÇÃO DO MYSQL LOCAL (WORKBENCH)
 # ==========================================
 DB_CONFIG = {
-    "host": "localhost",          # Se rodar no Docker, mude para "mysql"
+    "host": "127.0.0.1",
+    "port": 3306,
     "user": "root",
-    "password": "lumos_password123",
-    "database": "lumos_db"
+    "password": "Belg011012@",
+    "database": "monitoramento_rede"
 }
 
 def get_db():
     return mysql.connector.connect(**DB_CONFIG)
 
+
 # ==========================================
-# 2. OUVINTE MQTT (RECEBE DO HIVEMQ/HARDWARE)
+# 1. MODELOS DE VALIDAÇÃO (PYDANTIC)
 # ==========================================
-MQTT_BROKER = "localhost"         # Se rodar no Docker, mude para "hivemq"
+class AcionamentoRequest(BaseModel):
+    id_ocorrencia: int
+    id_equipe: int
+    prioridade: str
+    instrucoes: str
+
+
+# ==========================================
+# 2. OUVINTE MQTT (EMQX.IO)
+# ==========================================
+MQTT_BROKER = "broker.emqx.io"
 MQTT_PORT = 1883
-MQTT_TOPIC = "lumos/telemetria/postes"
+MQTT_TOPIC = "lumos/telemetria/postes"  # <-- Confirme o tópico exato com a Victoria
 
 def processar_pacote_hardware(payload_json: dict):
-    """Salva a leitura e abre ocorrência automática se faltar energia."""
+    """Salva a leitura em dados_processados e abre alerta_ocorrencia se faltar energia."""
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
 
     try:
         codigo_poste = payload_json.get("codigo_poste")
-        tensao = payload_json.get("tensao_volts", 0.0)
-        corrente = payload_json.get("corrente_amp", 0.0)
-        status_energia = payload_json.get("status_energia", True)
+        tensao = payload_json.get("tensao_volts", payload_json.get("tensao", 0.0))
+        corrente = payload_json.get("corrente_amp", payload_json.get("corrente", 0.0))
+        continuidade = payload_json.get("continuidade", 1)
+        vibracao = payload_json.get("vibracao", 0.0)
+        status_energia = payload_json.get("status_energia", "normal")
 
-        # Busca o ID do poste no banco da Bia
-        cursor.execute("SELECT id_poste, status_energia FROM postes WHERE codigo = %s", (codigo_poste,))
+        # 1. Busca o id_dispositivo do poste na tabela poste_dispositivo
+        cursor.execute(
+            "SELECT id_dispositivo FROM poste_dispositivo WHERE codigo_poste = %s",
+            (codigo_poste,)
+        )
         poste = cursor.fetchone()
 
         if not poste:
-            print(f"[AVISO] Poste {codigo_poste} não cadastrado no banco.")
+            print(f"[MQTT] Poste {codigo_poste} não encontrado em poste_dispositivo.")
             return
 
-        id_poste = poste["id_poste"]
+        id_dispositivo = poste["id_dispositivo"]
 
-        # 1. Grava o histórico na tabela leituras_telemetria
+        # 2. Insere a leitura na tabela dados_processados
         cursor.execute(
-            """INSERT INTO leituras_telemetria (id_poste, tensao_volts, corrente_amp, status_energia)
-               VALUES (%s, %s, %s, %s)""",
-            (id_poste, tensao, corrente, status_energia)
+            """
+            INSERT INTO dados_processados 
+                (id_dispositivo, tensao, corrente, continuidade, vibracao, payload_json)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (id_dispositivo, tensao, corrente, continuidade, vibracao, json.dumps(payload_json))
+        )
+        id_da_leitura = cursor.lastrowid
+
+        # 3. Atualiza o status atual do poste em poste_dispositivo
+        estado_poste = "sem_energia" if (status_energia in [False, "sem_energia", 0] or tensao == 0) else "normal"
+        cursor.execute(
+            """
+            UPDATE poste_dispositivo 
+            SET status_energia = %s, status_online = TRUE 
+            WHERE id_dispositivo = %s
+            """,
+            (estado_poste, id_dispositivo)
         )
 
-        # 2. Regra de negócio: Se acabou a energia, atualiza o poste e cria ocorrência
-        novo_status = "NORMAL" if status_energia else "SEM_ENERGIA"
-        cursor.execute("UPDATE postes SET status_energia = %s WHERE id_poste = %s", (novo_status, id_poste))
-
-        if not status_energia and poste["status_energia"] == "NORMAL":
+        # 4. Se caiu a energia, abre alerta automático em alerta_ocorrencia
+        if estado_poste == "sem_energia":
             cursor.execute(
-                """INSERT INTO ocorrencias (id_poste, descricao, prioridade, status)
-                   VALUES (%s, %s, 'Crítica', 'Pendente')""",
-                (id_poste, f"Interrupção de energia detectada no poste {codigo_poste}")
+                """
+                SELECT id_alerta FROM alerta_ocorrencia 
+                WHERE id_dispositivo = %s AND status_alerta IN ('aberto', 'em_atendimento')
+                """,
+                (id_dispositivo,)
             )
-            print(f"[ALERTA CRÍTICO] Ocorrência aberta para o poste {codigo_poste}!")
+            ja_aberto = cursor.fetchone()
+
+            if not ja_aberto:
+                cursor.execute(
+                    """
+                    INSERT INTO alerta_ocorrencia 
+                        (id_dispositivo, id_da_leitura, tipo_evento, nivel_severidade, descricao, status_alerta)
+                    VALUES (%s, %s, 'queda_energia', 'critica', %s, 'aberto')
+                    """,
+                    (id_dispositivo, id_da_leitura, f"Queda de tensão detectada no poste {codigo_poste} (Tensão: {tensao}V)")
+                )
 
         conn.commit()
     except Exception as e:
-        print(f"[ERRO BANCO] {e}")
+        conn.rollback()
+        print(f"[Erro Banco MQTT]: {e}")
     finally:
         cursor.close()
         conn.close()
 
+
 def on_connect(client, userdata, flags, rc):
-    print("Conectado ao Broker HiveMQ! Escutando tópico:", MQTT_TOPIC)
-    client.subscribe(MQTT_TOPIC)
+    if rc == 0:
+        print("Conectado ao EMQX com sucesso!")
+        client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
     try:
         dados = json.loads(msg.payload.decode())
-        print("Pacote recebido do hardware:", dados)
         processar_pacote_hardware(dados)
     except Exception as e:
-        print("Erro ao ler JSON do MQTT:", e)
+        print(f"[Erro JSON MQTT]: {e}")
 
 def iniciar_mqtt():
     client = mqtt.Client()
@@ -103,94 +145,147 @@ def iniciar_mqtt():
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_forever()
     except Exception as e:
-        print("Não foi possível conectar ao HiveMQ agora:", e)
+        print(f"Não foi possível conectar ao EMQX agora: {e}")
 
-# Inicia o ouvinte MQTT em paralelo quando a API ligar
-@app.on_event("startup")
-def startup_event():
-    thread = threading.Thread(target=iniciar_mqtt, daemon=True)
-    thread.start()
+threading.Thread(target=iniciar_mqtt, daemon=True).start()
+
 
 # ==========================================
-# 3. ROTAS DA API REST (PARA O FRONTEND)
+# 3. ROTAS REST PARA O FRONTEND (LUMOS)
 # ==========================================
 
-# Rota da Página 1: Listar todos os postes (para o mapa interativo)
-@app.get("/api/postes")
+@app.get("/api/postes", summary="Listar Postes")
 def listar_postes():
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM postes")
-    dados = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return dados
+    try:
+        cursor.execute("""
+            SELECT 
+                id_dispositivo AS id,
+                id_dispositivo,
+                codigo_poste,
+                latitude,
+                longitude,
+                endereco,
+                bairro,
+                trecho_afetado,
+                clientes_afetados,
+                protocolo_rede,
+                status_online,
+                status_energia
+            FROM poste_dispositivo
+            ORDER BY id_dispositivo
+        """)
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
-# Rota da Página 1: Barra de busca de postes
-@app.get("/api/postes/buscar")
-def buscar_postes(q: str):
+
+@app.get("/api/postes/buscar", summary="Buscar Postes")
+def buscar_postes(q: str = ""):
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-    termo = f"%{q}%"
-    cursor.execute(
-        """SELECT id_poste, codigo, endereco, bairro, trecho_afetado, status_energia, clientes_afetados
-           FROM postes WHERE codigo LIKE %s OR endereco LIKE %s LIMIT 5""",
-        (termo, termo)
-    )
-    resultados = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return resultados
+    try:
+        termo = f"%{q}%"
+        cursor.execute("""
+            SELECT 
+                id_dispositivo AS id,
+                id_dispositivo,
+                codigo_poste,
+                latitude,
+                longitude,
+                endereco,
+                bairro,
+                trecho_afetado,
+                clientes_afetados,
+                status_online,
+                status_energia
+            FROM poste_dispositivo
+            WHERE codigo_poste LIKE %s OR bairro LIKE %s OR endereco LIKE %s
+        """, (termo, termo, termo))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
-# Rota da Página 4: Listar ocorrências ativas
-@app.get("/api/ocorrencias")
+
+@app.get("/api/ocorrencias", summary="Listar Ocorrencias")
 def listar_ocorrencias():
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute(
-        """SELECT o.*, p.codigo AS codigo_poste, p.endereco, p.bairro
-           FROM ocorrencias o
-           JOIN postes p ON o.id_poste = p.id_poste
-           ORDER BY o.data_abertura DESC"""
-    )
-    dados = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return dados
+    try:
+        cursor.execute("""
+            SELECT 
+                a.id_alerta AS id,
+                a.id_alerta,
+                a.id_dispositivo,
+                p.codigo_poste,
+                p.bairro,
+                p.endereco,
+                p.clientes_afetados,
+                a.tipo_evento,
+                a.nivel_severidade,
+                a.descricao,
+                a.data_hora_alerta,
+                a.status_alerta
+            FROM alerta_ocorrencia a
+            JOIN poste_dispositivo p ON a.id_dispositivo = p.id_dispositivo
+            ORDER BY a.data_hora_alerta DESC
+        """)
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
-# Rota da Página 6: Listar equipes para despacho
-@app.get("/api/equipes")
+
+@app.get("/api/equipes", summary="Listar Equipes")
 def listar_equipes():
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM equipes")
-    dados = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return dados
+    try:
+        cursor.execute("""
+            SELECT 
+                id_equipe AS id,
+                id_equipe,
+                nome,
+                composicao,
+                status,
+                latitude,
+                longitude
+            FROM equipes
+            ORDER BY id_equipe
+        """)
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
 
-# Modelo de dados que vem do Modal da Página 6
-class AcionamentoRequest(BaseModel):
-    id_ocorrencia: int
-    id_equipe: int
-    prioridade: str
-    instrucoes: str = ""
 
-# Rota da Página 6: Confirmar acionamento de equipe
-@app.post("/api/acionamentos")
+@app.post("/api/acionamentos", summary="Criar Acionamento")
 def criar_acionamento(dados: AcionamentoRequest):
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute(
-            """INSERT INTO acionamentos (id_ocorrencia, id_equipe, prioridade, instrucoes)
-               VALUES (%s, %s, %s, %s)""",
-            (dados.id_ocorrencia, dados.id_equipe, dados.prioridade, dados.instrucoes)
-        )
-        cursor.execute("UPDATE equipes SET status = 'Ocupada' WHERE id_equipe = %s", (dados.id_equipe,))
-        cursor.execute("UPDATE ocorrencias SET status = 'Em Atendimento' WHERE id_ocorrencia = %s", (dados.id_ocorrencia,))
+        cursor.execute("""
+            INSERT INTO ordem_do_servico (id_alerta, id_equipe, prioridade, observacao_reparo)
+            VALUES (%s, %s, %s, %s)
+        """, (dados.id_ocorrencia, dados.id_equipe, dados.prioridade.lower(), dados.instrucoes))
+        id_ordem_servico = cursor.lastrowid
+
+        cursor.execute("""
+            UPDATE equipes SET status = 'ocupada' WHERE id_equipe = %s
+        """, (dados.id_equipe,))
+
+        cursor.execute("""
+            UPDATE alerta_ocorrencia SET status_alerta = 'em_atendimento' WHERE id_alerta = %s
+        """, (dados.id_ocorrencia,))
+
         conn.commit()
-        return {"mensagem": "Equipe acionada com sucesso!"}
+        return {
+            "mensagem": "Equipe acionada e Ordem de Serviço gerada com sucesso!",
+            "id_ordem_servico": id_ordem_servico
+        }
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
