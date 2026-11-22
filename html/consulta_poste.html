@@ -11,6 +11,123 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <title>Lumos - Consulta de Postes</title>
+    <style>
+  .item-clicavel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(51, 65, 85, 0.6);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .item-clicavel:hover {
+    border-color: #2EB4AF;
+    background: rgba(30, 41, 59, 0.9);
+  }
+  .item-clicavel.active {
+    border-left: 4px solid #EF4444;
+    background: rgba(239, 68, 68, 0.08);
+  }
+  .item-clicavel.resolved {
+    border-left: 4px solid #2EB4AF;
+  }
+  .city-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .city-name {
+    font-weight: 700;
+    color: #F8FAFC;
+    font-size: 14px;
+  }
+  .city-time {
+    font-size: 12px;
+    color: #94A3B8;
+    margin-top: 2px;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot.red { background: #EF4444; box-shadow: 0 0 8px #EF4444; }
+  .dot.green { background: #2EB4AF; box-shadow: 0 0 8px #2EB4AF; }
+
+  .badge-status {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .badge-status.active, .badge-status.alerta {
+    background: rgba(239, 68, 68, 0.18);
+    color: #F87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+  }
+  .badge-status.resolved, .badge-status.normal {
+    background: rgba(46, 180, 175, 0.18);
+    color: #2EB4AF;
+    border: 1px solid rgba(46, 180, 175, 0.4);
+  }
+
+  /* Card de detalhes quando clica no poste */
+  .detalhe-poste-box {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid rgba(51, 65, 85, 0.7);
+  }
+  .detalhe-poste-box.em-alerta {
+    border-color: rgba(239, 68, 68, 0.5);
+  }
+  .detalhe-topo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .detalhe-codigo {
+    font-size: 18px;
+    font-weight: 800;
+    color: #38BDF8;
+  }
+  .detalhe-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .detalhe-campo {
+    background: rgba(30, 41, 59, 0.65);
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(51, 65, 85, 0.5);
+  }
+  .detalhe-campo.full {
+    grid-column: 1 / -1;
+  }
+  .detalhe-label {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94A3B8;
+    margin-bottom: 4px;
+  }
+  .detalhe-valor {
+    font-size: 13px;
+    font-weight: 600;
+    color: #F1F5F9;
+  }
+</style>
 </head>
 <body>
 
