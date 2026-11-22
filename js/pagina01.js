@@ -15,14 +15,14 @@ function inicializarMapa() {
 
   mapa = L.map("map").setView([-7.2143, -39.3129], 14);
 
-  // Servidor oficial OpenStreetMap (100% gratuito e sem necessidade de API Key)
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; OpenStreetMap contributors',
+    attribution: "&copy; OpenStreetMap contributors",
     maxZoom: 19
   }).addTo(mapa);
 
   camadaMarcadores = L.layerGroup().addTo(mapa);
 }
+
 // 2. BUSCA OS POSTES NA API E DESENHA OS PINOS
 async function carregarPostesNoMapa() {
   if (!mapa) return;
@@ -36,12 +36,11 @@ async function carregarPostesNoMapa() {
     postes.forEach(poste => {
       if (!poste.latitude || !poste.longitude) return;
 
-      const semEnergia = poste.status_energia === "SEM_ENERGIA";
+      const semEnergia = poste.status_energia === "sem_energia";
       const classePino = semEnergia ? "marker-active" : "marker-resolved";
       const corBadge = semEnergia ? "#EF4444" : "#2EB4AF";
       const textoStatus = semEnergia ? "SEM ENERGIA (CRÍTICO)" : "ENERGIA NORMAL";
 
-      // Cria o ícone customizado usando as classes do seu pagina01.css
       const iconeCustom = L.divIcon({
         className: "custom-div-icon",
         html: `<div class="${classePino}" style="width: 18px; height: 18px; border-radius: 50%; background: ${corBadge}; border: 3px solid #fff; box-shadow: 0 0 12px ${corBadge};"></div>`,
@@ -51,14 +50,14 @@ async function carregarPostesNoMapa() {
 
       const marker = L.marker([poste.latitude, poste.longitude], { icon: iconeCustom });
 
-      // Balão de informações ao clicar no pino
       marker.bindPopup(`
         <div style="font-family: sans-serif; min-width: 180px;">
-          <strong style="font-size: 14px; color: #0F172A;">${poste.codigo}</strong><br>
+          <strong style="font-size: 14px; color: #0F172A;">${poste.codigo_poste}</strong><br>
           <span style="font-size: 12px; color: #475569;">${poste.endereco} - ${poste.bairro}</span>
           <hr style="margin: 6px 0; border: 0; border-top: 1px solid #E2E8F0;">
           <span style="font-size: 11px; font-weight: bold; color: ${corBadge};">${textoStatus}</span><br>
-          <span style="font-size: 11px; color: #334155;">Clientes afetados: <strong>${poste.clientes_afetados || 0}</strong></span>
+          <span style="font-size: 11px; color: #334155;">Clientes afetados: <strong>${poste.clientes_afetados || 0}</strong></span><br>
+          <a href="consulta_poste.html?codigo=${encodeURIComponent(poste.codigo_poste)}" style="display:inline-block; margin-top:6px; font-size:11px; color:#0284c7; font-weight:bold;">Ver detalhes completos →</a>
         </div>
       `);
 
@@ -109,16 +108,19 @@ function configurarBuscaPostes() {
       }
 
       resultadoBox.innerHTML = postes.map(poste => {
-        const semEnergia = poste.status_energia === "SEM_ENERGIA";
+        const semEnergia = poste.status_energia === "sem_energia";
         const corStatus = semEnergia ? "#EF4444" : "#2EB4AF";
         const textoStatus = semEnergia ? "SEM ENERGIA (CRÍTICO)" : "ENERGIA NORMAL";
 
         return `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1E293B;">
+          <div onclick="window.location.href='consulta_poste.html?codigo=${encodeURIComponent(poste.codigo_poste)}'" 
+               style="display: flex; justify-content: space-between; align-items: center; padding: 10px 8px; border-bottom: 1px solid #1E293B; cursor: pointer; transition: background 0.2s;"
+               onmouseover="this.style.background='#1E293B'" 
+               onmouseout="this.style.background='transparent'">
             <div>
-              <strong style="font-size: 15px; color: #2EB4AF;">${poste.codigo}</strong> — <span>${poste.endereco} (${poste.bairro})</span>
+              <strong style="font-size: 15px; color: #2EB4AF;">${poste.codigo_poste}</strong> — <span>${poste.endereco} (${poste.bairro})</span>
               <p style="font-size: 12px; color: #94A3B8; margin-top: 4px;">
-                Trecho: <strong>${poste.trecho_afetado || "N/A"}</strong> • Clientes afetados: <strong>${poste.clientes_afetados}</strong>
+                Trecho: <strong>${poste.trecho_afetado || "N/A"}</strong> • Clientes afetados: <strong>${poste.clientes_afetados || 0}</strong>
               </p>
             </div>
             <span style="background: rgba(255,255,255,0.05); border: 1px solid ${corStatus}; color: ${corStatus}; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: bold;">
