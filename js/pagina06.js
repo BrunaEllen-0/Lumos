@@ -1,315 +1,310 @@
-const API_URL = "http://127.0.0.1:8000/api";
-let mapaEquipes;
-let camadaEquipes;
-let posteAtual = null;
+const API_BASE = "http://127.0.0.1:8000/api";
+
+let mapaPoste = null;
+let marcadorPoste = null;
+let equipesCarregadas = [];
+let equipeSelecionada = null;
+let prioridadeSelecionada = "critica";
 let ocorrenciaAtual = null;
 
-document.addEventListener("DOMContentLoaded", async () => {
-  inicializarMapaEquipes();
-  iniciarRelogioSincronizacao();
-  configurarSelecaoEquipa();
-  configurarSelecaoPrioridade();
-  configurarBotoesAcao();
-
-  await carregarDadosOcorrenciaEMapa();
-});
-
-// 1. INICIALIZA O MAPA LEAFLET (#map-equipes)
-function inicializarMapaEquipes() {
-  const mapEl = document.getElementById("map-equipes");
-  if (!mapEl) return;
-
-  mapaEquipes = L.map("map-equipes").setView([-7.2143, -39.3129], 15);
-
-  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
-    attribution: "Tiles &copy; Esri",
-    maxZoom: 18
-  }).addTo(mapaEquipes);
-
-  camadaEquipes = L.layerGroup().addTo(mapaEquipes);
-}
-
-// 2. CARREGA DADOS DO POSTE SELECIONADO (VIA ?poste=...) E EQUIPES NO MAPA
-async function carregarDadosOcorrenciaEMapa() {
+function obterIdOcorrenciaUrl() {
   const params = new URLSearchParams(window.location.search);
-  const codigoPosteUrl = params.get("poste");
-
-  try {
-    const [resPostes, resOcorrencias, resEquipes] = await Promise.all([
-      fetch(`${API_URL}/postes`),
-      fetch(`${API_URL}/ocorrencias`),
-      fetch(`${API_URL}/equipes`)
-    ]);
-
-    const postes = await resPostes.json();
-    const ocorrencias = await resOcorrencias.json();
-    const equipes = await resEquipes.json();
-
-    // Seleciona o poste vindo da URL ou o primeiro poste em alerta
-    posteAtual = codigoPosteUrl
-      ? postes.find(p => p.codigo_poste === codigoPosteUrl)
-      : postes.find(p => p.status_energia === "sem_energia") || postes[0];
-
-    // Busca a ocorrência aberta correspondente a esse poste
-    if (posteAtual) {
-      ocorrenciaAtual = ocorrencias.find(
-        o => o.codigo_poste === posteAtual.codigo_poste && o.status_alerta !== "resolvida"
-      ) || ocorrencias.find(o => o.codigo_poste === posteAtual.codigo_poste);
-
-      atualizarInterfaceComPoste(posteAtual, ocorrenciaAtual);
-    }
-
-    // Desenha os pinos no mini-mapa
-    if (mapaEquipes && camadaEquipes) {
-      camadaEquipes.clearLayers();
-
-      // Pino do poste da ocorrência em foco
-      if (posteAtual && posteAtual.latitude && posteAtual.longitude) {
-        const lat = parseFloat(posteAtual.latitude);
-        const lng = parseFloat(posteAtual.longitude);
-
-        mapaEquipes.setView([lat, lng], 16);
-
-        const iconePoste = L.divIcon({
-          className: "custom-div-icon",
-          html: `<div style="width: 20px; height: 20px; border-radius: 50%; background: #EF4444; border: 3px solid #fff; box-shadow: 0 0 14px #EF4444;"></div>`,
-          iconSize: [20, 20],
-          iconAnchor: [10, 10]
-        });
-
-        L.marker([lat, lng], { icon: iconePoste })
-          .bindPopup(`
-            <div style="font-family: sans-serif;">
-              <strong style="color: #EF4444;">⚠️ ${posteAtual.codigo_poste} (Sem Energia)</strong><br>
-              <span style="font-size: 12px; color: #334155;">${posteAtual.endereco} - ${posteAtual.bairro}</span><br>
-              <span style="font-size: 11px; color: #64748B;">Clientes afetados: <strong>${posteAtual.clientes_afetados || 0}</strong></span>
-            </div>
-          `)
-          .addTo(camadaEquipes)
-          .openPopup();
-      }
-
-      // Pinos das equipes de campo
-      equipes.forEach(equipe => {
-        if (!equipe.latitude || !equipe.longitude) return;
-
-        const disponivel = equipe.status && equipe.status.toLowerCase().includes("disp");
-        const corEquipe = disponivel ? "#10B981" : "#F59E0B";
-
-        const iconeEquipe = L.divIcon({
-          className: "custom-div-icon",
-          html: `<div style="width: 22px; height: 22px; border-radius: 6px; background: ${corEquipe}; border: 2px solid #fff; box-shadow: 0 0 12px ${corEquipe}; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 11px;">E</div>`,
-          iconSize: [22, 22],
-          iconAnchor: [11, 11]
-        });
-
-        L.marker([parseFloat(equipe.latitude), parseFloat(equipe.longitude)], { icon: iconeEquipe })
-          .bindPopup(`
-            <div style="font-family: sans-serif; min-width: 160px;">
-              <strong style="color: #0F172A;">🚐 ${equipe.nome}</strong><br>
-              <span style="font-size: 12px; font-weight: bold; color: ${corEquipe};">Status: ${equipe.status}</span>
-            </div>
-          `)
-          .addTo(camadaEquipes);
-      });
-    }
-  } catch (erro) {
-    console.warn("Erro ao carregar dados da API na pagina06:", erro);
-  }
+  const idParam = params.get("id_ocorrencia") || params.get("id_alerta") || params.get("id");
+  return idParam ? Number(idParam) : null;
 }
 
-// 3. ATUALIZA TEXTOS DA PÁGINA COM OS DADOS REAIS DO POSTE
-function atualizarInterfaceComPoste(poste, ocorrencia) {
-  const lat = parseFloat(poste.latitude);
-  const lng = parseFloat(poste.longitude);
-  const idOc = ocorrencia ? ocorrencia.id_alerta : "482";
-
-  // Cabeçalho da página
-  const subtituloHeader = document.querySelector(".header-left p");
-  if (subtituloHeader) {
-    subtituloHeader.textContent = `Despacho de equipe para a ocorrência #${idOc} — ${poste.bairro || "Juazeiro do Norte"}, CE`;
-  }
-
-  // Subtítulo do card "Local da ocorrência"
-  const subtituloCardLocal = document.querySelector(".right-col .content-card:first-child .card-subtitle");
-  if (subtituloCardLocal) {
-    subtituloCardLocal.textContent = `POSTE ${poste.codigo_poste}`;
-  }
-
-  // Linhas de Endereço, Trecho afetado e Clientes afetados
-  const linhasDetalhes = document.querySelectorAll(".location-details .detail-row");
-  linhasDetalhes.forEach(linha => {
-    const label = linha.querySelector(".detail-label");
-    const value = linha.querySelector(".detail-value");
-    if (!label || !value) return;
-
-    const textoLabel = label.textContent.trim();
-    if (textoLabel === "Endereço") {
-      value.textContent = `${poste.endereco} (${lat.toFixed(6)}, ${lng.toFixed(6)})`;
-    } else if (textoLabel === "Trecho afetado") {
-      value.textContent = poste.trecho_afetado || poste.codigo_poste;
-    } else if (textoLabel === "Clientes afetados") {
-      value.textContent = poste.clientes_afetados ?? 0;
-    }
-  });
-
-  // Textarea de instruções para a equipe
-  const textareaInstrucoes = document.querySelector(".instructions-textarea");
-  if (textareaInstrucoes) {
-    textareaInstrucoes.value =
-      `Proceder à inspeção da rede e chaves fusíveis no ${poste.trecho_afetado || "trecho"} (${poste.codigo_poste} — ${poste.endereco}, ${poste.bairro}).\n` +
-      `Realizar testes de tensão e continuidade antes de reenergizar o ramal.\n` +
-      `Confirmar o restabelecimento junto ao Centro de Operação.`;
-  }
-
-  // Descrição do modal de sucesso
-  const modalDesc = document.querySelector(".modal-description");
-  if (modalDesc) {
-    modalDesc.innerHTML = `A <strong id="modal-nome-equipe">Equipe ENL-07 • Carlos M.</strong> foi acionada para a ocorrência <strong>#${idOc}</strong> (${poste.codigo_poste}) e já recebeu o chamado no app do agente técnico.`;
-  }
+function atualizarHoraSincronizacao() {
+  const el = document.getElementById("sync-time");
+  if (!el) return;
+  const agora = new Date();
+  el.textContent = agora.toLocaleTimeString("pt-BR");
 }
 
-// 4. RELÓGIO DE SINCRONIZAÇÃO NO TOPO
-function iniciarRelogioSincronizacao() {
-  const syncTimeElement = document.querySelector(".sync-time");
+function renderizarMapa(lat, lng, codigoPoste, endereco) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) return;
 
-  function atualizarHorario() {
-    const agora = new Date();
-    const horas = String(agora.getHours()).padStart(2, "0");
-    const minutos = String(agora.getMinutes()).padStart(2, "0");
-    const segundos = String(agora.getSeconds()).padStart(2, "0");
+  if (!mapaPoste) {
+    mapaPoste = L.map("map-equipes").setView([latitude, longitude], 16);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap",
+    }).addTo(mapaPoste);
+  } else {
+    mapaPoste.setView([latitude, longitude], 16);
+  }
 
-    if (syncTimeElement) {
-      syncTimeElement.textContent = `${horas}:${minutos}:${segundos}`;
+  if (marcadorPoste) {
+    marcadorPoste.setLatLng([latitude, longitude]);
+  } else {
+    marcadorPoste = L.marker([latitude, longitude]).addTo(mapaPoste);
+  }
+
+  marcadorPoste.bindPopup(`<b>${codigoPoste || "Poste"}</b><br>${endereco || ""}`).openPopup();
+}
+
+function calcularDistanciaKm(lat1, lon1, lat2, lon2) {
+  if ([lat1, lon1, lat2, lon2].some((v) => v === null || v === undefined || Number.isNaN(Number(v)))) {
+    return null;
+  }
+  const R = 6371;
+  const dLat = ((Number(lat2) - Number(lat1)) * Math.PI) / 180;
+  const dLon = ((Number(lon2) - Number(lon1)) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((Number(lat1) * Math.PI) / 180) *
+      Math.cos((Number(lat2) * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function carregarOcorrencia() {
+  let idOcorrencia = obterIdOcorrenciaUrl();
+
+  if (!idOcorrencia) {
+    const respLista = await fetch(`${API_BASE}/ocorrencias`);
+    if (respLista.ok) {
+      const lista = await respLista.json();
+      const ativa = lista.find((o) => o.status_alerta !== "resolvido") || lista[0];
+      if (ativa) idOcorrencia = ativa.id_alerta ?? ativa.id;
     }
   }
 
-  atualizarHorario();
-  setInterval(atualizarHorario, 1000);
+  if (!idOcorrencia) return;
+
+  const resp = await fetch(`${API_BASE}/ocorrencias/${idOcorrencia}`);
+  if (!resp.ok) return;
+
+  ocorrenciaAtual = await resp.json();
+
+  document.getElementById("subtitulo-ocorrencia").textContent =
+    `Despacho de equipe para a ocorrência #${ocorrenciaAtual.id_alerta} — ${ocorrenciaAtual.bairro || "Juazeiro do Norte"}, CE`;
+
+  document.getElementById("banner-descricao").textContent =
+    ocorrenciaAtual.descricao || "Interrupção súbita de tensão e corrente elétrica no trecho monitorado";
+
+  document.getElementById("codigo-poste-label").textContent =
+    `POSTE ${ocorrenciaAtual.codigo_poste || ""}`;
+
+  const coordsTexto =
+    ocorrenciaAtual.latitude != null && ocorrenciaAtual.longitude != null
+      ? ` (${Number(ocorrenciaAtual.latitude).toFixed(6)}, ${Number(ocorrenciaAtual.longitude).toFixed(6)})`
+      : "";
+
+  document.getElementById("endereco-poste").textContent =
+    `${ocorrenciaAtual.endereco || "Endereço não informado"}${coordsTexto}`;
+
+  document.getElementById("trecho-poste").textContent =
+    ocorrenciaAtual.trecho_afetado || ocorrenciaAtual.codigo_poste || "—";
+
+  document.getElementById("clientes-poste").textContent =
+    Number(ocorrenciaAtual.clientes_afetados || 0).toLocaleString("pt-BR");
+
+  renderizarMapa(
+    ocorrenciaAtual.latitude,
+    ocorrenciaAtual.longitude,
+    ocorrenciaAtual.codigo_poste,
+    ocorrenciaAtual.endereco
+  );
 }
 
-// 5. SELEÇÃO DE EQUIPE E PRIORIDADE
-function configurarSelecaoEquipa() {
-  const opcoesEquipa = document.querySelectorAll(".team-option");
+function selecionarEquipe(idEquipe) {
+  const equipe = equipesCarregadas.find((eq) => Number(eq.id_equipe ?? eq.id) === Number(idEquipe));
+  if (!equipe || String(equipe.status).toLowerCase() !== "disponivel") return;
 
-  opcoesEquipa.forEach((opcao) => {
-    opcao.addEventListener("click", () => {
-      if (opcao.classList.contains("disabled")) return;
+  equipeSelecionada = equipe;
 
-      opcoesEquipa.forEach((opt) => opt.classList.remove("active"));
-      opcao.classList.add("active");
-
-      const radioInput = opcao.querySelector('input[type="radio"]');
-      if (radioInput) radioInput.checked = true;
-    });
+  document.querySelectorAll("#lista-equipes .team-option").forEach((label) => {
+    const eqId = Number(label.dataset.idEquipe);
+    label.classList.toggle("active", eqId === Number(idEquipe));
+    const radio = label.querySelector('input[type="radio"]');
+    if (radio) radio.checked = eqId === Number(idEquipe);
   });
 }
 
-function configurarSelecaoPrioridade() {
-  const botoesPrioridade = document.querySelectorAll(".priority-btn");
+async function carregarEquipes() {
+  const container = document.getElementById("lista-equipes");
+  if (!container) return;
 
-  botoesPrioridade.forEach((botao) => {
-    botao.addEventListener("click", () => {
-      botoesPrioridade.forEach((btn) => btn.classList.remove("active-critica", "active"));
+  const resp = await fetch(`${API_BASE}/equipes`);
+  if (!resp.ok) throw new Error("Falha ao buscar equipes");
 
-      const textoPrioridade = botao.textContent.trim().toUpperCase();
-      if (textoPrioridade === "CRÍTICA") {
-        botao.classList.add("active-critica");
-      } else {
-        botao.classList.add("active");
-      }
+  equipesCarregadas = await resp.json();
+
+  const itemsComDistancia = equipesCarregadas.map((eq) => {
+    const distKm = ocorrenciaAtual
+      ? calcularDistanciaKm(
+          ocorrenciaAtual.latitude,
+          ocorrenciaAtual.longitude,
+          eq.latitude,
+          eq.longitude
+        )
+      : null;
+    return { ...eq, distKm };
+  });
+
+  itemsComDistancia.sort((a, b) => {
+    const aDisp = String(a.status).toLowerCase() === "disponivel" ? 0 : 1;
+    const bDisp = String(b.status).toLowerCase() === "disponivel" ? 0 : 1;
+    if (aDisp !== bDisp) return aDisp - bDisp;
+    if (a.distKm !== null && b.distKm !== null) return a.distKm - b.distKm;
+    return 0;
+  });
+
+  const primeiraDisponivel = itemsComDistancia.find(
+    (eq) => String(eq.status).toLowerCase() === "disponivel"
+  );
+  equipeSelecionada = primeiraDisponivel || null;
+
+  container.innerHTML = itemsComDistancia
+    .map((eq) => {
+      const idEq = eq.id_equipe ?? eq.id;
+      const statusLower = String(eq.status || "").toLowerCase();
+      const disponivel = statusLower === "disponivel";
+      const selecionada = equipeSelecionada && Number(equipeSelecionada.id_equipe ?? equipeSelecionada.id) === Number(idEq);
+      const sigla = String(eq.nome || "EQ").slice(-2).toUpperCase();
+
+      const rotuloStatus = disponivel
+        ? "Disponível"
+        : statusLower === "ocupada"
+        ? "Ocupada"
+        : "Indisponível";
+
+      const distTexto =
+        eq.distKm !== null ? `${eq.distKm.toFixed(1).replace(".", ",")} km` : "—";
+      const tempoTexto =
+        eq.distKm !== null ? `~${Math.max(3, Math.round((eq.distKm / 30) * 60))} min` : "";
+
+      return `
+        <label class="team-option ${selecionada ? "active" : ""} ${!disponivel ? "disabled" : ""}" data-id-equipe="${idEq}">
+          <input type="radio" name="equipe" value="${idEq}" ${selecionada ? "checked" : ""} ${!disponivel ? "disabled" : ""}>
+          <span class="custom-radio"></span>
+          <div class="team-badge">${sigla}</div>
+          <div class="team-details">
+            <h3>${eq.nome}</h3>
+            <p>${eq.composicao || "Equipe de campo"} • ${rotuloStatus}</p>
+          </div>
+          ${
+            disponivel
+              ? `<div class="team-distance">
+                   <span class="dist-val">${distTexto}</span>
+                   <span class="dist-time">${tempoTexto}</span>
+                 </div>`
+              : `<div class="team-status-tag">${rotuloStatus}</div>`
+          }
+        </label>
+      `;
+    })
+    .join("");
+
+  container.querySelectorAll(".team-option").forEach((label) => {
+    label.addEventListener("click", () => {
+      if (label.classList.contains("disabled")) return;
+      selecionarEquipe(label.dataset.idEquipe);
     });
   });
 }
 
-// 6. BOTÕES DE CONFIRMAR ACIONAMENTO E CANCELAR
-function configurarBotoesAcao() {
-  const btnConfirmar = document.querySelector(".btn-confirm");
-  const btnCancelar = document.querySelector(".btn-cancel");
-
-  if (btnConfirmar) {
-    btnConfirmar.addEventListener("click", async () => {
-      const equipaAtiva = document.querySelector(".team-option.active");
-      const prioridadeAtiva = document.querySelector(".priority-btn.active-critica, .priority-btn.active");
-      const textareaInstrucoes = document.querySelector(".instructions-textarea");
-
-      let nomeEquipa = "Equipe selecionada";
-      let idEquipe = 1;
-
-      if (equipaAtiva) {
-        const tituloElemento = equipaAtiva.querySelector(".team-details h3");
-        const descricaoElemento = equipaAtiva.querySelector(".team-details p");
-        const badgeElemento = equipaAtiva.querySelector(".team-badge");
-        const distVal = equipaAtiva.querySelector(".dist-val");
-        const distTime = equipaAtiva.querySelector(".dist-time");
-
-        nomeEquipa = tituloElemento ? tituloElemento.textContent.trim() : nomeEquipa;
-        if (badgeElemento && badgeElemento.textContent.trim() === "12") idEquipe = 2;
-
-        let composicao = descricaoElemento ? descricaoElemento.textContent.trim() : "";
-        composicao = composicao.replace(/Disponível/g, "").replace(/•\s*$/, "").trim();
-
-        const distTexto = distVal ? distVal.textContent.trim() : "";
-        const tempoTexto = distTime ? distTime.textContent.trim() : "";
-        const distanciaFinal = `${distTexto} — ${tempoTexto}`;
-
-        const agora = new Date();
-        const horaAtual = agora.toLocaleTimeString("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-
-        const elNome = document.getElementById("modal-nome-equipe");
-        const elResumo = document.getElementById("modal-equipe-resumo");
-        const elComposicao = document.getElementById("modal-composicao");
-        const elDistancia = document.getElementById("modal-distancia");
-        const elHora = document.getElementById("modal-hora");
-
-        if (elNome) elNome.textContent = nomeEquipa;
-        if (elResumo) elResumo.textContent = nomeEquipa;
-        if (elComposicao) elComposicao.textContent = composicao;
-        if (elDistancia) elDistancia.textContent = distanciaFinal;
-        if (elHora) elHora.textContent = horaAtual;
-      }
-
-      // Envia o acionamento real para o FastAPI se houver ocorrência vinculada
-      if (ocorrenciaAtual && ocorrenciaAtual.id_alerta) {
-        try {
-          await fetch(`${API_URL}/acionamentos`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id_ocorrencia: ocorrenciaAtual.id_alerta,
-              id_equipe: idEquipe,
-              prioridade: prioridadeAtiva ? prioridadeAtiva.textContent.trim() : "CRÍTICA",
-              instrucoes: textareaInstrucoes ? textareaInstrucoes.value : ""
-            })
-          });
-        } catch (e) {
-          console.warn("Não foi possível gravar ordem de serviço no banco:", e);
-        }
-      }
-
-      const modal = document.getElementById("modal-sucesso");
-      if (modal) modal.classList.remove("hidden");
+function configurarPrioridades() {
+  const botoes = document.querySelectorAll("#seletor-prioridade .priority-btn");
+  botoes.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      botoes.forEach((b) => b.classList.remove("active-critica"));
+      btn.classList.add("active-critica");
+      prioridadeSelecionada = btn.dataset.prioridade || "media";
     });
+  });
+}
+
+async function confirmarAcionamento() {
+  if (!ocorrenciaAtual) {
+    alert("Nenhuma ocorrência carregada.");
+    return;
   }
 
-  if (btnCancelar) {
-    btnCancelar.addEventListener("click", () => {
-      if (confirm("Deseja cancelar o acionamento da equipe?")) {
-        window.location.href = "pagina04.html";
-      }
-    });
+  if (!equipeSelecionada || String(equipeSelecionada.status).toLowerCase() !== "disponivel") {
+    alert("Selecione uma equipe disponível para realizar o despacho.");
+    return;
   }
+
+  const instrucoes = document.getElementById("instrucoes-equipe")?.value?.trim() || "";
+  const payload = {
+    id_ocorrencia: Number(ocorrenciaAtual.id_alerta ?? ocorrenciaAtual.id),
+    id_equipe: Number(equipeSelecionada.id_equipe ?? equipeSelecionada.id),
+    prioridade: prioridadeSelecionada,
+    instrucoes,
+  };
+
+  const resp = await fetch(`${API_BASE}/acionamentos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    alert(data.detail || "Erro ao confirmar acionamento.");
+    return;
+  }
+
+  document.getElementById("modal-nome-equipe").textContent = equipeSelecionada.nome;
+  document.getElementById("modal-id-ocorrencia").textContent = `#${payload.id_ocorrencia}`;
+  document.getElementById("modal-equipe-resumo").textContent = equipeSelecionada.nome;
+  document.getElementById("modal-composicao").textContent = equipeSelecionada.composicao || "Equipe de campo";
+  document.getElementById("modal-prioridade").textContent = prioridadeSelecionada.toUpperCase();
+  document.getElementById("modal-distancia").textContent = "Despachada";
+  document.getElementById("modal-hora").textContent = new Date().toLocaleTimeString("pt-BR");
+
+  document.getElementById("modal-sucesso").classList.remove("hidden");
+  await carregarEquipes();
+}
+
+async function finalizarOcorrenciaAtual() {
+  if (!ocorrenciaAtual) return;
+
+  const idOcorrencia = Number(ocorrenciaAtual.id_alerta ?? ocorrenciaAtual.id);
+  const observacao = document.getElementById("instrucoes-equipe")?.value?.trim() || "";
+
+  const resp = await fetch(`${API_BASE}/ocorrencias/${idOcorrencia}/finalizar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id_equipe: equipeSelecionada ? Number(equipeSelecionada.id_equipe ?? equipeSelecionada.id) : null,
+      observacao,
+    }),
+  });
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    alert(data.detail || "Erro ao finalizar ocorrência.");
+    return;
+  }
+
+  alert(data.mensagem || "Ocorrência finalizada e salva no histórico!");
+  fecharModal();
+  await carregarOcorrencia();
+  await carregarEquipes();
 }
 
 function fecharModal() {
-  const modal = document.getElementById("modal-sucesso");
-  if (modal) modal.classList.add("hidden");
+  document.getElementById("modal-sucesso")?.classList.add("hidden");
 }
 
 function irParaAlertas() {
   window.location.href = "pagina04.html";
 }
+
+document.addEventListener("DOMContentLoaded", async () => {
+  atualizarHoraSincronizacao();
+  configurarPrioridades();
+
+  document.getElementById("btn-confirmar-acionamento")?.addEventListener("click", confirmarAcionamento);
+  document.getElementById("btn-finalizar-ocorrencia")?.addEventListener("click", finalizarOcorrenciaAtual);
+  document.getElementById("btn-cancelar")?.addEventListener("click", () => {
+    window.location.href = "pagina04.html";
+  });
+
+  await carregarOcorrencia();
+  await carregarEquipes();
+});
