@@ -21,8 +21,8 @@ app.add_middleware(
 DB_CONFIG = {
     "host": "127.0.0.1",
     "port": 3306,
-    "user": "",
-    "password": "",
+    "user": "root",
+    "password": "Belg011012@",
     "database": "monitoramento_rede"
 }
 
@@ -40,23 +40,6 @@ class AcionamentoRequest(BaseModel):
     instrucoes: str
 
 
-class FinalizarOcorrenciaRequest(BaseModel):
-    id_equipe: int | None = None
-    observacao: str | None = None
-
-
-def normalizar_prioridade(valor: str) -> str:
-    mapa = {
-        "baixa": "baixa",
-        "media": "media",
-        "média": "media",
-        "alta": "alta",
-        "critica": "critica",
-        "crítica": "critica",
-    }
-    return mapa.get((valor or "media").strip().lower(), "media")
-
-
 # ==========================================
 # 2. OUVINTE MQTT (EMQX.IO)
 # ==========================================
@@ -70,17 +53,19 @@ def processar_pacote_hardware(payload_json: dict):
     cursor = conn.cursor(dictionary=True)
 
     try:
-        codigo_poste = payload_json.get("codigo_poste")
-
+        codigo_poste = payload_json.get("codigo_poste") or payload_json.get("poste")
+        
+        # Lê do objeto 'leituras' enviado pelo firmware (com fallback para raiz)
         leituras = payload_json.get("leituras", {})
-        tensao = leituras.get("tensao_adc", payload_json.get("tensao_volts", payload_json.get("tensao", 0.0)))
-        corrente = leituras.get("corrente_adc", payload_json.get("corrente_amp", payload_json.get("corrente", 0.0)))
-
+        tensao = leituras.get("tensao_adc", leituras.get("tensao", payload_json.get("tensao_volts", payload_json.get("tensao", 0.0))))
+        corrente = leituras.get("corrente_adc", leituras.get("corrente", payload_json.get("corrente_amp", payload_json.get("corrente", 0.0))))
+        vibracao = leituras.get("vibracao_adc", leituras.get("vibracao", payload_json.get("vibracao_adc", payload_json.get("vibracao", 0.0))))
+        
         continuidade = payload_json.get("continuidade", 1)
-        vibracao = payload_json.get("vibracao", 0.0)
         status_energia = payload_json.get("status_energia", "normal")
         status_online = bool(payload_json.get("status_online", 1))
 
+        # 1. Busca o id_dispositivo do poste na tabela poste_dispositivo
         cursor.execute(
             "SELECT id_dispositivo FROM poste_dispositivo WHERE codigo_poste = %s",
             (codigo_poste,)
@@ -88,14 +73,15 @@ def processar_pacote_hardware(payload_json: dict):
         poste = cursor.fetchone()
 
         if not poste:
-            print(f"[MQTT] Poste {codigo_poste} não encontrado em poste_dispositivo.")
+            print(f"[MQTT] Poste '{codigo_poste}' não encontrado em poste_dispositivo. Pacote: {payload_json}")
             return
 
         id_dispositivo = poste["id_dispositivo"]
 
+        # 2. Insere a leitura na tabela dados_processados
         cursor.execute(
             """
-            INSERT INTO dados_processados
+            INSERT INTO dados_processados 
                 (id_dispositivo, tensao, corrente, continuidade, vibracao, payload_json)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
@@ -103,20 +89,22 @@ def processar_pacote_hardware(payload_json: dict):
         )
         id_da_leitura = cursor.lastrowid
 
+        # 3. Atualiza o status atual do poste em poste_dispositivo
         estado_poste = "sem_energia" if status_energia in [False, "sem_energia", 0] else "normal"
         cursor.execute(
             """
-            UPDATE poste_dispositivo
-            SET status_energia = %s, status_online = %s
+            UPDATE poste_dispositivo 
+            SET status_energia = %s, status_online = %s 
             WHERE id_dispositivo = %s
             """,
             (estado_poste, status_online, id_dispositivo)
         )
 
+        # 4. Se caiu a energia (CORTE_PERMANENTE / sem_energia), abre alerta automático
         if estado_poste == "sem_energia":
             cursor.execute(
                 """
-                SELECT id_alerta FROM alerta_ocorrencia
+                SELECT id_alerta FROM alerta_ocorrencia 
                 WHERE id_dispositivo = %s AND status_alerta IN ('aberto', 'em_atendimento')
                 """,
                 (id_dispositivo,)
@@ -126,7 +114,7 @@ def processar_pacote_hardware(payload_json: dict):
             if not ja_aberto:
                 cursor.execute(
                     """
-                    INSERT INTO alerta_ocorrencia
+                    INSERT INTO alerta_ocorrencia 
                         (id_dispositivo, id_da_leitura, tipo_evento, nivel_severidade, descricao, status_alerta)
                     VALUES (%s, %s, 'queda_energia', 'critica', %s, 'aberto')
                     """,
@@ -134,7 +122,7 @@ def processar_pacote_hardware(payload_json: dict):
                 )
 
         conn.commit()
-        print(f"[MQTT -> DB] {codigo_poste} atualizado | Status: {estado_poste} | Tensão: {tensao} | Corrente: {corrente}")
+        print(f"[MQTT -> DB] {codigo_poste} | Tensão: {tensao} | Corrente: {corrente} | Vibração: {vibracao}")
     except Exception as e:
         conn.rollback()
         print(f"[Erro Banco MQTT]: {e}")
@@ -149,8 +137,10 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
+    raw = msg.payload.decode("utf-8", errors="ignore")
+    print(f"[MQTT RECEBIDO] Tópico: {msg.topic} | Mensagem: {raw}")
     try:
-        dados = json.loads(msg.payload.decode("utf-8"))
+        dados = json.loads(raw)
         processar_pacote_hardware(dados)
     except Exception as e:
         print(f"[Erro JSON MQTT]: {e}")
@@ -178,7 +168,7 @@ def listar_postes():
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("""
-            SELECT
+            SELECT 
                 id_dispositivo AS id,
                 id_dispositivo,
                 codigo_poste,
@@ -207,7 +197,7 @@ def buscar_postes(q: str = ""):
     try:
         termo = f"%{q}%"
         cursor.execute("""
-            SELECT
+            SELECT 
                 id_dispositivo AS id,
                 id_dispositivo,
                 codigo_poste,
@@ -234,16 +224,13 @@ def listar_ocorrencias():
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("""
-            SELECT
+            SELECT 
                 a.id_alerta AS id,
                 a.id_alerta,
                 a.id_dispositivo,
                 p.codigo_poste,
-                p.latitude,
-                p.longitude,
                 p.bairro,
                 p.endereco,
-                p.trecho_afetado,
                 p.clientes_afetados,
                 a.tipo_evento,
                 a.nivel_severidade,
@@ -260,48 +247,13 @@ def listar_ocorrencias():
         conn.close()
 
 
-@app.get("/api/ocorrencias/{id_ocorrencia}", summary="Detalhar Ocorrencia")
-def detalhar_ocorrencia(id_ocorrencia: int):
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        cursor.execute("""
-            SELECT
-                a.id_alerta AS id,
-                a.id_alerta,
-                a.id_dispositivo,
-                p.codigo_poste,
-                p.latitude,
-                p.longitude,
-                p.bairro,
-                p.endereco,
-                p.trecho_afetado,
-                p.clientes_afetados,
-                a.tipo_evento,
-                a.nivel_severidade,
-                a.descricao,
-                a.data_hora_alerta,
-                a.status_alerta
-            FROM alerta_ocorrencia a
-            JOIN poste_dispositivo p ON a.id_dispositivo = p.id_dispositivo
-            WHERE a.id_alerta = %s
-        """, (id_ocorrencia,))
-        ocorrencia = cursor.fetchone()
-        if not ocorrencia:
-            raise HTTPException(status_code=404, detail="Ocorrência não encontrada")
-        return ocorrencia
-    finally:
-        cursor.close()
-        conn.close()
-
-
 @app.get("/api/equipes", summary="Listar Equipes")
 def listar_equipes():
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("""
-            SELECT
+            SELECT 
                 id_equipe AS id,
                 id_equipe,
                 nome,
@@ -323,12 +275,10 @@ def criar_acionamento(dados: AcionamentoRequest):
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     try:
-        prioridade_db = normalizar_prioridade(dados.prioridade)
-
         cursor.execute("""
             INSERT INTO ordem_do_servico (id_alerta, id_equipe, prioridade, observacao_reparo)
             VALUES (%s, %s, %s, %s)
-        """, (dados.id_ocorrencia, dados.id_equipe, prioridade_db, dados.instrucoes))
+        """, (dados.id_ocorrencia, dados.id_equipe, dados.prioridade.lower(), dados.instrucoes))
         id_ordem_servico = cursor.lastrowid
 
         cursor.execute("""
@@ -342,8 +292,7 @@ def criar_acionamento(dados: AcionamentoRequest):
         conn.commit()
         return {
             "mensagem": "Equipe acionada e Ordem de Serviço gerada com sucesso!",
-            "id_ordem_servico": id_ordem_servico,
-            "prioridade": prioridade_db
+            "id_ordem_servico": id_ordem_servico
         }
     except Exception as e:
         conn.rollback()
@@ -352,52 +301,52 @@ def criar_acionamento(dados: AcionamentoRequest):
         cursor.close()
         conn.close()
 
-
-@app.post("/api/ocorrencias/{id_ocorrencia}/finalizar", summary="Finalizar Ocorrencia")
-def finalizar_ocorrencia(id_ocorrencia: int, dados: FinalizarOcorrenciaRequest):
+@app.get("/api/metricas", summary="Métricas para Gráficos da Pagina 05")
+def obter_metricas(poste: str | None = None):
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute("""
-            SELECT id_dos_chamados, id_equipe, observacao_reparo
-            FROM ordem_do_servico
-            WHERE id_alerta = %s
-            ORDER BY id_dos_chamados DESC
-            LIMIT 1
-        """, (id_ocorrencia,))
-        os_atual = cursor.fetchone()
+            SELECT status_alerta AS status, COUNT(*) AS total
+            FROM alerta_ocorrencia
+            GROUP BY status_alerta
+        """)
+        resumo_alertas = cursor.fetchall()
 
-        if os_atual:
-            nova_obs = os_atual["observacao_reparo"] or ""
-            if dados.observacao:
-                nova_obs = f"{nova_obs}\n[Finalização] {dados.observacao}".strip()
-
+        if poste:
+            # Filtra diretamente pelo poste pesquisado (normal ou em alerta)
             cursor.execute("""
-                UPDATE ordem_do_servico
-                SET data_conclusao = CURRENT_TIMESTAMP,
-                    observacao_reparo = %s
-                WHERE id_dos_chamados = %s
-            """, (nova_obs, os_atual["id_dos_chamados"]))
-
-        cursor.execute("""
-            UPDATE alerta_ocorrencia
-            SET status_alerta = 'resolvido'
-            WHERE id_alerta = %s
-        """, (id_ocorrencia,))
-
-        id_equipe_liberar = dados.id_equipe or (os_atual["id_equipe"] if os_atual else None)
-        if id_equipe_liberar:
+                SELECT 
+                    d.*,
+                    p.codigo_poste,
+                    p.bairro
+                FROM dados_processados d
+                JOIN poste_dispositivo p ON d.id_dispositivo = p.id_dispositivo
+                WHERE p.codigo_poste = %s
+                ORDER BY d.id_da_leitura DESC
+                LIMIT 20
+            """, (poste,))
+        else:
+            # Comportamento padrão quando nenhum poste é passado na URL
             cursor.execute("""
-                UPDATE equipes
-                SET status = 'disponivel'
-                WHERE id_equipe = %s
-            """, (id_equipe_liberar,))
+                SELECT 
+                    d.*,
+                    p.codigo_poste,
+                    p.bairro
+                FROM dados_processados d
+                JOIN poste_dispositivo p ON d.id_dispositivo = p.id_dispositivo
+                ORDER BY d.id_da_leitura DESC
+                LIMIT 20
+            """)
 
-        conn.commit()
-        return {"mensagem": "Ocorrência finalizada e armazenada no histórico com sucesso!"}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        leituras_recentes = cursor.fetchall()
+        leituras_recentes.reverse()
+
+        return {
+            "alertas": resumo_alertas,
+            "postes": leituras_recentes,
+            "leituras": leituras_recentes
+        }
     finally:
         cursor.close()
         conn.close()
