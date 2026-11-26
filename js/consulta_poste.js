@@ -108,7 +108,7 @@ function desenharPinosNoMapa(postes) {
   });
 }
 
-// 4. EXIBE OS DETALHES DO POSTE (COM BOTÃO DE ACIONAMENTO QUANDO ESTIVER SEM ENERGIA)
+// 4. EXIBE OS DETALHES DO POSTE (COM HISTÓRICO SEMPRE VISÍVEL + ACIONAMENTO EM ALERTA)
 function exibirDetalhesPoste(poste, centralizarMapa = true) {
   posteSelecionadoCodigo = poste.codigo_poste;
   const painel = document.getElementById("painel-detalhes-poste");
@@ -119,14 +119,42 @@ function exibirDetalhesPoste(poste, centralizarMapa = true) {
   const classeBadge = emAlerta ? "alerta" : "normal";
   const textoStatus = emAlerta ? "EM ALERTA (SEM ENERGIA)" : "NORMAL";
 
-  // Botão exibido apenas quando o poste está sem energia (alerta crítico)
-  // ⚠️ Troque 'acionamento.html' abaixo pelo nome exato do seu arquivo HTML de acionamento de equipes
+  // Botão de Histórico: aparece para QUALQUER poste (normal ou em alerta)
+  const botaoHistoricoHTML = `
+    <button 
+      onclick="window.location.href='pagina05.html?poste=${encodeURIComponent(poste.codigo_poste)}'"
+      style="
+        margin-top: 6px;
+        width: 100%;
+        padding: 11px 16px;
+        background-color: #0284C7;
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
+        transition: background 0.2s ease;
+      "
+      onmouseover="this.style.backgroundColor='#0369A1'"
+      onmouseout="this.style.backgroundColor='#0284C7'"
+    >
+      📊 Ver Histórico do Sensor
+    </button>
+  `;
+
+  // Botão de Acionamento: exibido apenas quando o poste está sem energia (alerta crítico)
   const botaoAcionarHTML = emAlerta
     ? `
       <button 
         onclick="window.location.href='pagina06.html?poste=${encodeURIComponent(poste.codigo_poste)}&id=${poste.id_dispositivo}'"
         style="
-          margin-top: 6px;
+          margin-top: 8px;
           width: 100%;
           padding: 12px 16px;
           background-color: #EF4444;
@@ -185,6 +213,7 @@ function exibirDetalhesPoste(poste, centralizarMapa = true) {
         </div>
       </div>
 
+      ${botaoHistoricoHTML}
       ${botaoAcionarHTML}
     </div>
   `;
@@ -241,8 +270,8 @@ function renderizarListaPostes(postes) {
 // 6. BARRA DE BUSCA E BOTÃO LIMPAR
 function configurarBusca() {
   const input = document.getElementById("input-poste");
-  const btnBuscar = document.getElementById("btn-buscar-poste");
-  const btnLimpar = document.getElementById("btn-limpar-busca");
+  const btnBuscar = document.getElementById("btn-buscar");
+  const btnLimpar = document.getElementById("btn-limpar");
 
   async function executarBusca() {
     const termo = input ? input.value.trim() : "";
